@@ -201,8 +201,9 @@ def main():
     HIDDEN_SIZE = 128
     NUM_HIDDEN_LAYERS = 4
     LIMIT_TRAIN_BATCHES = 1.0  # LIMIT_TRAIN_BATCHES = 10
-    NUM_EPOCHS = 20  # NUM_EPOCHS = 1
+    NUM_EPOCHS = 50  # NUM_EPOCHS = 1
     NUM_STEPS_PER_SEQ = 1000
+    ONNX_EXPORT_PATH = "trained_model.onnx"
 
     gpu_or_cpu = "gpu" if torch.cuda.is_available() else "cpu"
     print(f"Using {gpu_or_cpu} as device.")
@@ -263,7 +264,7 @@ def main():
     early_stop_callback = EarlyStopping(
         monitor="val_weighted_corr",  # The string used in self.log()
         min_delta=0.00,  # Minimum change to qualify as an improvement
-        patience=3,  # Number of epochs with no improvement after which training will be stopped
+        patience=5,  # Number of epochs with no improvement after which training will be stopped
         verbose=True,
         mode="max",  # "max" for correlation, "min" for loss
     )
@@ -276,9 +277,25 @@ def main():
     trainer.fit(
         model=lit_model, train_dataloaders=train_loader, val_dataloaders=valid_loader
     )
-    # trainer.test(ckpt_path="best")
-    # trainer.test(ckpt_path="last")
-    # trainer.evaluate(model=lit_model, dataloaders=valid_loader)
+
+    best_model_path = trainer.checkpoint_callback.best_model_path
+    print(f"Best model saved at: {best_model_path}")
+
+    trained_model = SeqLitModel.load_from_checkpoint(best_model_path)
+    trained_model.eval()
+
+    # 4. Export the model
+    trained_model.to_onnx(
+        filepath=ONNX_EXPORT_PATH,
+        input_sample=torch.randn(BATCH_SIZE, NUM_STEPS_PER_SEQ, len(features)),
+        export_params=True,
+        opset_version=14,  # Use a modern opset for best compatibility
+        input_names=["input"],
+        output_names=["output"],
+        # This allows you to use different batch sizes on your CPU machine
+        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+    )
+    print(f"Model exported to {filepath}")
 
 
 if __name__ == "__main__":
