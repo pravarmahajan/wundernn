@@ -146,6 +146,9 @@ class SeqLitModel(L.LightningModule):
         self.model = model
         self.val_corr = WeightedPearsonCorr()
 
+    def forward(self, x):
+        return self.model(x)
+
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
         # it is independent of forward
@@ -200,8 +203,8 @@ def main():
     BATCH_SIZE = 128
     HIDDEN_SIZE = 128
     NUM_HIDDEN_LAYERS = 4
-    LIMIT_TRAIN_BATCHES = 1.0  # LIMIT_TRAIN_BATCHES = 10
-    NUM_EPOCHS = 50  # NUM_EPOCHS = 1
+    LIMIT_TRAIN_BATCHES = 10  # LIMIT_TRAIN_BATCHES = 10
+    NUM_EPOCHS = 1  # NUM_EPOCHS = 1
     NUM_STEPS_PER_SEQ = 1000
     ONNX_EXPORT_PATH = "trained_model.onnx"
 
@@ -281,12 +284,12 @@ def main():
     best_model_path = trainer.checkpoint_callback.best_model_path
     print(f"Best model saved at: {best_model_path}")
 
-    trained_model = SeqLitModel.load_from_checkpoint(best_model_path)
+    trained_model = SeqLitModel.load_from_checkpoint(best_model_path, model=model)
     trained_model.eval()
 
     # 4. Export the model
     trained_model.to_onnx(
-        filepath=ONNX_EXPORT_PATH,
+        ONNX_EXPORT_PATH,
         input_sample=torch.randn(BATCH_SIZE, NUM_STEPS_PER_SEQ, len(features)),
         export_params=True,
         opset_version=14,  # Use a modern opset for best compatibility
@@ -295,7 +298,7 @@ def main():
         # This allows you to use different batch sizes on your CPU machine
         dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
     )
-    print(f"Model exported to {filepath}")
+    print(f"Model exported to {ONNX_EXPORT_PATH}")
 
 
 if __name__ == "__main__":
