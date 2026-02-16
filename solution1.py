@@ -200,9 +200,12 @@ def main():
     BATCH_SIZE = 128
     HIDDEN_SIZE = 128
     NUM_HIDDEN_LAYERS = 4
-    LIMIT_TRAIN_BATCHES = 100  # LIMIT_TRAIN_BATCHES = 1.0
-    NUM_EPOCHS = 1  # NUM_EPOCHS = 10
+    LIMIT_TRAIN_BATCHES = 1.0  # LIMIT_TRAIN_BATCHES = 10
+    NUM_EPOCHS = 10  # NUM_EPOCHS = 1
     NUM_STEPS_PER_SEQ = 1000
+
+    gpu_or_cpu = "gpu" if torch.cuda.is_available() else "cpu"
+    print(f"Using {gpu_or_cpu} as device.")
 
     need_predictions_feature = ["need_prediction"]
     bid_price_features = [f"p{i}" for i in range(6)]
@@ -247,8 +250,6 @@ def main():
     )
 
     print(f"Train DataLoader created with batch size {BATCH_SIZE}.")
-
-    gpu_or_cpu = "gpu" if torch.cuda.is_available() else "cpu"
 
     # train the model (hint: here are some helpful Trainer arguments for rapid idea iteration)
     model = SequenceModel(
