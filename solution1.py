@@ -201,7 +201,7 @@ def main():
     HIDDEN_SIZE = 128
     NUM_HIDDEN_LAYERS = 4
     LIMIT_TRAIN_BATCHES = 1.0  # LIMIT_TRAIN_BATCHES = 10
-    NUM_EPOCHS = 10  # NUM_EPOCHS = 1
+    NUM_EPOCHS = 20  # NUM_EPOCHS = 1
     NUM_STEPS_PER_SEQ = 1000
 
     gpu_or_cpu = "gpu" if torch.cuda.is_available() else "cpu"
