@@ -121,22 +121,21 @@ class SequenceModel(nn.Module):
         self.fc = nn.Linear(hidden_size, output_size)
         self.use_need_pred_for_training = use_need_pred_for_training
 
-    def forward(self, x):
+    def forward(self, x, hidden=None):
+        # During training
         # x shape: [Batch, num_sequence_per_step, num_features]
-
         # out shape: [Batch, num_sequence_per_step, num_targets]
 
-        # _ contains the hidden and cell states (we don't need them for many-to-many)
-        if self.use_need_pred_for_training:
-            out, _ = self.lstm(x)
-        else:
-            out, _ = self.lstm(x[:, :, 1:])
+        # During inference
+        # x shape: [1, 1, num_features]
 
-        # We pass every timestep through the linear layer
-        # result shape: [Batch, 1000, 2]
+        t = x if self.use_need_pred_for_training else (x[:, :, 1:])
+
+        out, last_hidden = self.lstm(t, hidden)
+
         prediction = self.fc(out)
 
-        return prediction
+        return prediction, last_hidden
 
 
 # define the LightningModule
@@ -146,8 +145,8 @@ class SeqLitModel(L.LightningModule):
         self.model = model
         self.val_corr = WeightedPearsonCorr()
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, x, hidden_state):
+        return self.model(x, hidden_state)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
@@ -155,7 +154,7 @@ class SeqLitModel(L.LightningModule):
 
         x, t = batch
         # skip need_predictions
-        t_hat = self.model(x)
+        t_hat, _ = self.model(x)
         loss = nn.functional.mse_loss(t_hat, t)
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss)
@@ -163,7 +162,7 @@ class SeqLitModel(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        y_hat = self.model(x)  # Output shape [Batch, Seq, num_outputs]
+        y_hat, _ = self.model(x)  # Output shape [Batch, Seq, num_outputs]
         # print(f"Shape of y_hat: {y_hat.shape}")
 
         # Extract the 'need_prediction' flag from the first feature of every step
@@ -203,7 +202,7 @@ def main():
     BATCH_SIZE = 128
     HIDDEN_SIZE = 128
     NUM_HIDDEN_LAYERS = 4
-    LIMIT_TRAIN_BATCHES = 10  # LIMIT_TRAIN_BATCHES = 10
+    LIMIT_TRAIN_BATCHES = 5  # LIMIT_TRAIN_BATCHES = 1.0
     NUM_EPOCHS = 1  # NUM_EPOCHS = 1
     NUM_STEPS_PER_SEQ = 1000
     ONNX_EXPORT_PATH = "trained_model.onnx"
@@ -290,13 +289,22 @@ def main():
     # 4. Export the model
     trained_model.to_onnx(
         ONNX_EXPORT_PATH,
-        input_sample=torch.randn(BATCH_SIZE, NUM_STEPS_PER_SEQ, len(features)),
+        input_sample=(
+            torch.randn(1, NUM_STEPS_PER_SEQ, len(features)),
+            (
+                torch.randn(NUM_HIDDEN_LAYERS, 1, HIDDEN_SIZE),
+                torch.randn(NUM_HIDDEN_LAYERS, 1, HIDDEN_SIZE),
+            ),
+        ),
         export_params=True,
         opset_version=14,  # Use a modern opset for best compatibility
-        input_names=["input"],
-        output_names=["output"],
+        input_names=["input", "hidden_h", "hidden_c"],
+        output_names=["output", "out_h", "out_c"],
         # This allows you to use different batch sizes on your CPU machine
-        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+        dynamic_axes={
+            "input": {0: "batch_size", 1: "seq_len"},
+            "output": {0: "batch_size", 1: "seq_len"},
+        },
     )
     print(f"Model exported to {ONNX_EXPORT_PATH}")
 

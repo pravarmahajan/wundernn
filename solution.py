@@ -22,11 +22,10 @@ class PredictionModel:
 
     def __init__(self, model_path=""):
         self.current_seq_ix = None
-        self.sequence_history = []
+        self.hidden_state = None
 
         # Determine paths
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        onnx_path = os.path.join(base_dir, "trained_model.onnx")
+        onnx_path = "trained_model.onnx"
 
         # Initialize ONNX Runtime Session
         sess_options = ort.SessionOptions()
@@ -44,56 +43,48 @@ class PredictionModel:
                 onnx_path, sess_options, providers=["CPUExecutionProvider"]
             )
             self.input_name = self.ort_session.get_inputs()[0].name
+            self.h_name = self.ort_session.get_inputs()[1].name
+            self.c_name = self.ort_session.get_inputs()[2].name
+
             self.output_name = self.ort_session.get_outputs()[0].name
+            self.num_layers = 4
+            self.hidden_size = 128
+            self.reset_states()
             print(f"Loaded ONNX model from {onnx_path}")
 
         except Exception as e:
             print(f"Error loading model resources: {e}")
             self.ort_session = None
 
+    def reset_states(self):
+        self.h_state = np.zeros(
+            (self.num_layers, 1, self.hidden_size), dtype=np.float32
+        )
+        self.c_state = np.zeros(
+            (self.num_layers, 1, self.hidden_size), dtype=np.float32
+        )
+
     def predict(self, data_point: DataPoint) -> np.ndarray:
+
         # Reset state on new sequence
         if self.current_seq_ix != data_point.seq_ix:
             self.current_seq_ix = data_point.seq_ix
-            self.sequence_history = []
-
-        # Update history
-        self.sequence_history.append(data_point.state.copy())
-
-        # If prediction not needed yet, return None
-        if not data_point.need_prediction:
-            return None
-
-        if self.ort_session is None:
-            return np.zeros(2)
-
-        # Prepare input window (last 100 steps)
-        # The model was trained with a context window of 100
-        history_window = self.sequence_history[-100:]
-
-        # Pad with zeros if history is shorter than 100 (should not happen for need_prediction=True starting at step 99)
-        if len(history_window) < 100:
-            padding = [np.zeros_like(history_window[0])] * (100 - len(history_window))
-            history_window = padding + history_window
-
-        data_arr = np.asarray(history_window, dtype=np.float32)
-
-        # Add batch dimension: (1, Sequence_Length, Features)
-        data_tensor = np.expand_dims(data_arr, axis=0)
+            self.reset_states()
 
         # Run inference
-        ort_inputs = {self.input_name: data_tensor}
-        # Output shape from our VanillaLSTM is (1, 2) because we select the last step inside the model
-        output = self.ort_session.run([self.output_name], ort_inputs)[0]
+        ort_inputs = {
+            self.input_name: data_point.state.reshape(1, 1, -1).astype("float32"),
+            self.h_name: self.h_state,
+            self.c_name: self.c_state,
+        }
 
-        if len(output.shape) == 3:
-            # If model returns (Batch, Seq, Features)
-            prediction = output[0, -1, :]
+        outputs = self.ort_session.run(None, ort_inputs)
+        prediction, self.h_state, self.c_state = outputs
+
+        if not data_point.need_prediction:
+            return None
         else:
-            # If model returns (Batch, Features)
-            prediction = output[0]
-
-        return prediction
+            return prediction[0][0]
 
 
 if __name__ == "__main__":
